@@ -6,6 +6,8 @@ import {
   Dumbbell, Plus, Trash2, ChevronLeft, ChevronRight, TrendingUp,
   CalendarDays, Flame, Activity, Trophy,
 } from "lucide-react";
+import { db } from "./firebase";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
 /* ---------------- design tokens ---------------- */
 const C = {
@@ -20,18 +22,18 @@ const F_DISP = "'Barlow Condensed', system-ui, sans-serif";
 const F_BODY = "'Barlow', system-ui, sans-serif";
 const F_MONO = "'JetBrains Mono', ui-monospace, monospace";
 
-/* ---------------- storage ---------------- */
-const mem = {};
-const hasStore = typeof window !== "undefined" && window.storage;
+/* ---------------- storage (Firestore) ---------------- */
 const store = {
   async get(k, fb) {
-    try { if (!hasStore) return k in mem ? mem[k] : fb;
-      const r = await window.storage.get(k, false); return r ? JSON.parse(r.value) : fb;
+    try {
+      const snap = await getDoc(doc(db, "data", k));
+      return snap.exists() ? snap.data().value : fb;
     } catch { return fb; }
   },
   async set(k, v) {
-    try { if (!hasStore) { mem[k] = v; return; } await window.storage.set(k, JSON.stringify(v), false); }
-    catch (e) { console.error(e); }
+    try {
+      await setDoc(doc(db, "data", k), { value: v });
+    } catch (e) { console.error(e); }
   },
 };
 
@@ -298,7 +300,7 @@ export default function App() {
         {tab === "plan" && <PlanView />}
 
         <footer style={{ marginTop: 40, textAlign: "center", color: C.faint, font: `500 12px ${F_MONO}`, letterSpacing: .5 }}>
-          {hasStore ? "Saved automatically across sessions" : "Preview mode"} · progressive overload is the whole game
+          Synced across all devices · progressive overload is the whole game
         </footer>
       </div>
     </div>
