@@ -208,7 +208,7 @@ export default function App() {
   return (
     <div style={{ background: C.bg, minHeight: "100vh", fontFamily: F_BODY, color: C.text,
       backgroundImage: `radial-gradient(1100px 520px at 90% -8%, ${sp.color}1f, transparent 58%), radial-gradient(800px 420px at 0% 0%, ${C.green}12, transparent 55%)` }}>
-      <div style={{ maxWidth: 940, margin: "0 auto", padding: "24px 16px 60px" }}>
+      <div style={{ padding: "24px 32px 60px" }}>
 
         {/* header */}
         <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 14, marginBottom: 20 }}>
