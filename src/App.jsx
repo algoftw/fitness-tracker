@@ -127,8 +127,11 @@ const store = {
 
 async function uploadPhoto(file, date) {
   const r = ref(storage, `photos/${date}/${Date.now()}_${file.name}`);
-  await uploadBytes(r, file);
-  return getDownloadURL(r);
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error("Upload timed out — check your Firebase Storage rules allow writes.")), 30000)
+  );
+  const upload = uploadBytes(r, file).then((snap) => getDownloadURL(snap.ref));
+  return Promise.race([upload, timeout]);
 }
 
 /* ---------------- date helpers ---------------- */
@@ -237,7 +240,7 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [log, setLog] = useState({});
   const [bodyLog, setBodyLog] = useState({});
-  const [range, setRange] = useState(30);
+  const [range, setRange] = useState(14);
 
   useEffect(() => {
     const l = document.createElement("link"); l.rel = "stylesheet";
@@ -746,7 +749,7 @@ function AnalyticsView({ bodyLog, log, range, setRange }) {
           <div style={{ font: `800 28px/.9 ${F_DISP}`, textTransform: "uppercase", letterSpacing: .5, marginTop: 4 }}>Your signals.</div>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
-          {[14, 30, 90].map((r) => (
+          {[7, 14, 21].map((r) => (
             <button key={r} onClick={() => setRange(r)} style={{
               border: `1px solid ${range === r ? C.amber : C.line}`, borderRadius: 9, padding: "8px 14px",
               background: range === r ? C.amber : C.panel, color: range === r ? "#04140a" : C.muted,
