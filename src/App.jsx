@@ -154,12 +154,21 @@ async function compressPhoto(file) {
 async function dbSavePhoto(date, file) {
   const db2 = await getPhotoDB();
   const dataUrl = await compressPhoto(file);
-  await new Promise((res, rej) => {
+  const id = await new Promise((res, rej) => {
     const tx = db2.transaction("p", "readwrite");
-    tx.objectStore("p").add({ date, dataUrl, ts: Date.now() });
+    const req = tx.objectStore("p").add({ date, dataUrl, ts: Date.now() });
+    req.onsuccess = () => res(req.result);
+    tx.onerror = () => rej(tx.error);
+  });
+  return { id, dataUrl };
+}
+async function dbDeletePhoto(id) {
+  const db2 = await getPhotoDB();
+  return new Promise((res, rej) => {
+    const tx = db2.transaction("p", "readwrite");
+    tx.objectStore("p").delete(id);
     tx.oncomplete = res; tx.onerror = () => rej(tx.error);
   });
-  return dataUrl;
 }
 async function dbLoadAllPhotos() {
   const db2 = await getPhotoDB();
@@ -168,7 +177,7 @@ async function dbLoadAllPhotos() {
     const req = tx.objectStore("p").getAll();
     req.onsuccess = () => {
       const out = {};
-      req.result.forEach(r => { (out[r.date] = out[r.date] || []).push(r.dataUrl); });
+      req.result.forEach(r => { (out[r.date] = out[r.date] || []).push({ id: r.id, dataUrl: r.dataUrl }); });
       res(out);
     };
     req.onerror = () => rej(req.error);
@@ -303,8 +312,12 @@ export default function App() {
     saveBody({ ...bodyLog, [date]: { ...entry, [k]: v } });
   };
   const addPhoto = async (file) => {
-    const dataUrl = await dbSavePhoto(date, file);
-    setPhotos(prev => ({ ...prev, [date]: [...(prev[date] || []), dataUrl] }));
+    const { id, dataUrl } = await dbSavePhoto(date, file);
+    setPhotos(prev => ({ ...prev, [date]: [...(prev[date] || []), { id, dataUrl }] }));
+  };
+  const deletePhoto = async (photoDate, id) => {
+    await dbDeletePhoto(id);
+    setPhotos(prev => ({ ...prev, [photoDate]: (prev[photoDate] || []).filter(p => p.id !== id) }));
   };
   const session = log[date] || [];
 
@@ -439,7 +452,7 @@ export default function App() {
             <Btn onClick={loadFullDay} bg={sp.color} style={{ marginTop: 16 }}><Plus size={16}/> Load full session</Btn>
           </Panel>
 
-          <DailyCheckin entry={bodyLog[date] || {}} onChange={setBodyField} date={date} photos={photos[date] || []} onAddPhoto={addPhoto} />
+          <DailyCheckin entry={bodyLog[date] || {}} onChange={setBodyField} photos={photos[date] || []} onAddPhoto={addPhoto} onDeletePhoto={(id) => deletePhoto(date, id)} />
           <CustomAdd onAdd={addCustom} />
 
           {session.map((ex) => ex.cardio
@@ -460,7 +473,7 @@ export default function App() {
         {tab === "progress" && <>
           <AnalyticsView bodyLog={bodyLog} log={log} range={range} setRange={setRange} />
           <ProgressView log={log} />
-          <ProgressPhotosView photos={photos} />
+          <ProgressPhotosView photos={photos} onDelete={deletePhoto} />
         </>}
 
         {tab === "motivation" && (
@@ -634,7 +647,7 @@ function PastWinsView() {
 }
 
 /* ---------------- daily check-in ---------------- */
-function DailyCheckin({ entry, onChange, photos, onAddPhoto }) {
+function DailyCheckin({ entry, onChange, photos, onAddPhoto, onDeletePhoto }) {
   return (
     <Panel style={{ padding: 18, marginBottom: 16, borderColor: `${C.amber}55`,
       background: `linear-gradient(135deg, ${C.amber}18, ${C.panel} 60%)` }}>
@@ -655,13 +668,62 @@ function DailyCheckin({ entry, onChange, photos, onAddPhoto }) {
             onBlur={(e) => (e.target.style.borderColor = C.line)} />
         </label>
       </div>
-      <PhotoCheckin photos={photos} onAdd={onAddPhoto} />
+      <PhotoCheckin photos={photos} onAdd={onAddPhoto} onDelete={onDeletePhoto} />
     </Panel>
   );
 }
 
+/* ---------------- photo modal ---------------- */
+function PhotoModal({ url, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.93)",
+      display: "grid", placeItems: "center", zIndex: 1000, cursor: "zoom-out" }}>
+      <img src={url} onClick={(e) => e.stopPropagation()} alt="Progress photo" style={{
+        maxWidth: "92vw", maxHeight: "92vh", objectFit: "contain",
+        borderRadius: 12, cursor: "default", boxShadow: "0 0 60px rgba(0,0,0,0.8)",
+      }} />
+    </div>
+  );
+}
+
+/* ---------------- photo thumb with x + click-to-view ---------------- */
+function PhotoThumb({ photo, size = 88, onDelete, accentColor = C.violet }) {
+  const [modal, setModal] = useState(false);
+  return (
+    <>
+      <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
+        <img src={photo.dataUrl} alt="Progress" onClick={() => setModal(true)} style={{
+          width: "100%", height: "100%", objectFit: "cover", borderRadius: 10, display: "block",
+          border: `1px solid ${C.line}`, cursor: "zoom-in", transition: "border-color .2s",
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.borderColor = accentColor)}
+        onMouseLeave={(e) => (e.currentTarget.style.borderColor = C.line)} />
+        {onDelete && (
+          <button onClick={() => onDelete(photo.id)} aria-label="Delete photo" style={{
+            position: "absolute", top: 4, right: 4, width: 20, height: 20,
+            background: "rgba(0,0,0,0.75)", border: "none", borderRadius: "50%",
+            cursor: "pointer", color: "#fff", fontSize: 13, lineHeight: 1,
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
+            transition: "background .15s",
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = C.coral)}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(0,0,0,0.75)")}>
+            ×
+          </button>
+        )}
+      </div>
+      {modal && <PhotoModal url={photo.dataUrl} onClose={() => setModal(false)} />}
+    </>
+  );
+}
+
 /* ---------------- photo check-in ---------------- */
-function PhotoCheckin({ photos, onAdd }) {
+function PhotoCheckin({ photos, onAdd, onDelete }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState(null);
   const inputRef = useRef(null);
@@ -688,39 +750,29 @@ function PhotoCheckin({ photos, onAdd }) {
         Progress Photo
       </div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-start" }}>
-        {photos.map((url, i) => (
-          <a key={i} href={url} target="_blank" rel="noopener noreferrer">
-            <img src={url} alt={`Progress ${i + 1}`} style={{
-              width: 88, height: 88, objectFit: "cover", borderRadius: 10,
-              border: `1px solid ${C.line}`, display: "block", transition: "border-color .2s",
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.borderColor = C.violet)}
-            onMouseLeave={(e) => (e.currentTarget.style.borderColor = C.line)}
-            />
-          </a>
+        {photos.map((photo) => (
+          <PhotoThumb key={photo.id} photo={photo} size={88} onDelete={onDelete} />
         ))}
         <label style={{
           display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
           width: 88, height: 88, border: `1px dashed ${uploading ? C.violet : C.line}`, borderRadius: 10,
           cursor: uploading ? "default" : "pointer", background: C.panel2, color: uploading ? C.violet : C.muted,
-          gap: 5, font: `600 11px ${F_BODY}`, transition: "border-color .2s, color .2s",
+          gap: 5, font: `600 11px ${F_BODY}`, transition: "border-color .2s, color .2s", flexShrink: 0,
         }}
         onMouseEnter={(e) => { if (!uploading) { e.currentTarget.style.borderColor = C.violet; e.currentTarget.style.color = C.text; } }}
         onMouseLeave={(e) => { e.currentTarget.style.borderColor = uploading ? C.violet : C.line; e.currentTarget.style.color = uploading ? C.violet : C.muted; }}>
           <input ref={inputRef} type="file" accept="image/*" onChange={handleFile} hidden disabled={uploading} />
           <Camera size={18} />
-          <span>{uploading ? "Uploading…" : "Add Photo"}</span>
+          <span>{uploading ? "Processing…" : "Add Photo"}</span>
         </label>
       </div>
-      {error && (
-        <div style={{ color: C.coral, font: `500 13px ${F_BODY}`, marginTop: 8 }}>{error}</div>
-      )}
+      {error && <div style={{ color: C.coral, font: `500 13px ${F_BODY}`, marginTop: 8 }}>{error}</div>}
     </div>
   );
 }
 
 /* ---------------- progress photos gallery ---------------- */
-function ProgressPhotosView({ photos }) {
+function ProgressPhotosView({ photos, onDelete }) {
   const photoDates = Object.keys(photos).filter(d => photos[d]?.length).sort().reverse();
 
   return (
@@ -739,16 +791,9 @@ function ProgressPhotosView({ photos }) {
               <div style={{ font: `700 13px ${F_MONO}`, color: C.faint, letterSpacing: 1.5,
                 textTransform: "uppercase", marginBottom: 8 }}>{pretty(d)}</div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {photos[d].map((url, i) => (
-                  <a key={i} href={url} target="_blank" rel="noopener noreferrer">
-                    <img src={url} alt={`${d} progress`} style={{
-                      width: 110, height: 110, objectFit: "cover", borderRadius: 10,
-                      border: `1px solid ${C.line}`, display: "block", transition: "transform .2s, border-color .2s",
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.04)"; e.currentTarget.style.borderColor = C.violet; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.borderColor = C.line; }}
-                    />
-                  </a>
+                {photos[d].map((photo) => (
+                  <PhotoThumb key={photo.id} photo={photo} size={110}
+                    onDelete={(id) => onDelete(d, id)} />
                 ))}
               </div>
             </div>
