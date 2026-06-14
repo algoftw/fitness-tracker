@@ -633,7 +633,7 @@ function PhotoCheckin({ photos, date, onAdd }) {
       const url = await uploadPhoto(file, date);
       onAdd(url);
     } catch (err) {
-      setError("Upload failed — check your connection and try again.");
+      setError(err.message || "Upload failed.");
       console.error(err);
     } finally {
       setUploading(false);
