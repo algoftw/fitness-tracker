@@ -142,15 +142,26 @@ export default function App() {
   const [date, setDate] = useState(TODAY);
   const [loaded, setLoaded] = useState(false);
   const [log, setLog] = useState({});
+  const [bodyLog, setBodyLog] = useState({});
+  const [range, setRange] = useState(30);
 
   useEffect(() => {
     const l = document.createElement("link"); l.rel = "stylesheet";
     l.href = "https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap";
     document.head.appendChild(l);
   }, []);
-  useEffect(() => { (async () => { setLog(await store.get("trainingLog", {})); setLoaded(true); })(); }, []);
+  useEffect(() => { (async () => {
+    setLog(await store.get("trainingLog", {}));
+    setBodyLog(await store.get("bodyLog", {}));
+    setLoaded(true);
+  })(); }, []);
 
   const save = (next) => { setLog(next); store.set("trainingLog", next); };
+  const saveBody = (next) => { setBodyLog(next); store.set("bodyLog", next); };
+  const setBodyField = (k, v) => {
+    const entry = bodyLog[date] || {};
+    saveBody({ ...bodyLog, [date]: { ...entry, [k]: v } });
+  };
   const session = log[date] || [];
 
   const lastBest = useMemo(() => {
@@ -279,6 +290,7 @@ export default function App() {
             <Btn onClick={loadFullDay} bg={sp.color} style={{ marginTop: 16 }}><Plus size={16}/> Load full session</Btn>
           </Panel>
 
+          <DailyCheckin entry={bodyLog[date] || {}} onChange={setBodyField} />
           <CustomAdd onAdd={addCustom} />
 
           {session.map((ex) => ex.cardio
@@ -296,7 +308,10 @@ export default function App() {
           )}
         </>}
 
-        {tab === "progress" && <ProgressView log={log} />}
+        {tab === "progress" && <>
+          <AnalyticsView bodyLog={bodyLog} log={log} range={range} setRange={setRange} />
+          <ProgressView log={log} />
+        </>}
         {tab === "plan" && <PlanView />}
 
         <footer style={{ marginTop: 40, textAlign: "center", color: C.faint, font: `500 12px ${F_MONO}`, letterSpacing: .5 }}>
@@ -304,6 +319,135 @@ export default function App() {
         </footer>
       </div>
     </div>
+  );
+}
+
+/* ---------------- daily check-in ---------------- */
+function DailyCheckin({ entry, onChange }) {
+  return (
+    <Panel style={{ padding: 18, marginBottom: 16, borderColor: `${C.amber}55`,
+      background: `linear-gradient(135deg, ${C.amber}18, ${C.panel} 60%)` }}>
+      <Eyebrow color={C.amber}>Daily Check-in</Eyebrow>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <span style={{ font: `600 11px ${F_MONO}`, color: C.faint, letterSpacing: 1.5, textTransform: "uppercase" }}>Body Weight (lb)</span>
+          <input type="number" inputMode="decimal" value={entry.weight || ""} placeholder="185"
+            onChange={(e) => onChange("weight", e.target.value)} style={cell}
+            onFocus={(e) => (e.target.style.borderColor = C.amber)}
+            onBlur={(e) => (e.target.style.borderColor = C.line)} />
+        </label>
+        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <span style={{ font: `600 11px ${F_MONO}`, color: C.faint, letterSpacing: 1.5, textTransform: "uppercase" }}>Steps</span>
+          <input type="number" inputMode="numeric" value={entry.steps || ""} placeholder="8000"
+            onChange={(e) => onChange("steps", e.target.value)} style={cell}
+            onFocus={(e) => (e.target.style.borderColor = C.amber)}
+            onBlur={(e) => (e.target.style.borderColor = C.line)} />
+        </label>
+      </div>
+    </Panel>
+  );
+}
+
+/* ---------------- analytics ---------------- */
+function AnalyticsView({ bodyLog, log, range, setRange }) {
+  const start = addDays(TODAY, -range + 1);
+
+  const entries = Object.keys(bodyLog).filter((d) => d >= start && d <= TODAY).sort();
+  const weights = entries.filter((d) => bodyLog[d]?.weight).map((d) => ({ d, w: +bodyLog[d].weight }));
+  const stepsArr = entries.filter((d) => bodyLog[d]?.steps).map((d) => +bodyLog[d].steps);
+
+  const weightChange = weights.length >= 2 ? weights[weights.length - 1].w - weights[0].w : null;
+  const currentWeight = weights.length ? weights[weights.length - 1].w : null;
+  const avgSteps = stepsArr.length ? Math.round(stepsArr.reduce((a, b) => a + b, 0) / stepsArr.length) : null;
+  const workoutDays = Object.keys(log).filter((d) => d >= start && d <= TODAY && log[d]?.length).length;
+
+  const StatCard = ({ label, value, sub, color = C.text }) => (
+    <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, padding: "20px 22px" }}>
+      <div style={{ font: `600 11px ${F_MONO}`, color: C.faint, letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>{label}</div>
+      <div style={{ font: `800 36px/.9 ${F_DISP}`, color, letterSpacing: .3 }}>{value ?? "—"}</div>
+      {sub && <div style={{ font: `500 13px ${F_BODY}`, color: C.muted, marginTop: 6 }}>{sub}</div>}
+    </div>
+  );
+
+  return (
+    <>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div>
+          <Eyebrow color={C.amber}>Analytics</Eyebrow>
+          <div style={{ font: `800 28px/.9 ${F_DISP}`, textTransform: "uppercase", letterSpacing: .5, marginTop: 4 }}>Your signals.</div>
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {[14, 30, 90].map((r) => (
+            <button key={r} onClick={() => setRange(r)} style={{
+              border: `1px solid ${range === r ? C.amber : C.line}`, borderRadius: 9, padding: "8px 14px",
+              background: range === r ? C.amber : C.panel, color: range === r ? "#04140a" : C.muted,
+              font: `700 13px ${F_BODY}`, cursor: "pointer", transition: "all .2s",
+            }}>{r}D</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 20 }}>
+        <StatCard label="Weight Change"
+          value={weightChange !== null ? `${weightChange > 0 ? "+" : ""}${weightChange.toFixed(1)} lb` : "—"}
+          sub={`${range}-day trend`}
+          color={weightChange === null ? C.text : weightChange <= 0 ? C.green : C.coral} />
+        <StatCard label="Current Weight"
+          value={currentWeight ? `${currentWeight} lb` : "—"}
+          sub="Latest entry" />
+        <StatCard label="Avg Steps"
+          value={avgSteps ? avgSteps.toLocaleString() : "—"}
+          sub={`${stepsArr.length} days logged`}
+          color={C.cyan} />
+        <StatCard label="Workout Days"
+          value={workoutDays}
+          sub={`${range}-day range`}
+          color={C.violet} />
+      </div>
+
+      {weights.length > 1 && (
+        <Panel style={{ padding: 18, marginBottom: 16 }}>
+          <Eyebrow color={C.amber}>Weight Trend</Eyebrow>
+          <ResponsiveContainer width="100%" height={200}>
+            <AreaChart data={weights.map((x) => ({ label: shortD(x.d), weight: x.w }))} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+              <defs><linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={C.amber} stopOpacity={0.4}/><stop offset="100%" stopColor={C.amber} stopOpacity={0}/></linearGradient></defs>
+              <CartesianGrid stroke={C.lineSoft} vertical={false} />
+              <XAxis dataKey="label" tick={{ fill: C.faint, fontSize: 12 }} axisLine={false} tickLine={false} minTickGap={24} />
+              <YAxis domain={["auto", "auto"]} tick={{ fill: C.faint, fontSize: 12 }} axisLine={false} tickLine={false} />
+              <Tooltip content={<Tip unit=" lb" />} />
+              <Area type="monotone" dataKey="weight" name="Weight" stroke={C.amber} strokeWidth={3} fill="url(#wg)" dot={{ r: 3, fill: C.amber }} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </Panel>
+      )}
+
+      {stepsArr.length > 1 && (
+        <Panel style={{ padding: 18, marginBottom: 16 }}>
+          <Eyebrow color={C.cyan}>Steps Trend</Eyebrow>
+          <ResponsiveContainer width="100%" height={200}>
+            <AreaChart data={entries.filter((d) => bodyLog[d]?.steps).map((d) => ({ label: shortD(d), steps: +bodyLog[d].steps }))} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+              <defs><linearGradient id="sg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={C.cyan} stopOpacity={0.4}/><stop offset="100%" stopColor={C.cyan} stopOpacity={0}/></linearGradient></defs>
+              <CartesianGrid stroke={C.lineSoft} vertical={false} />
+              <XAxis dataKey="label" tick={{ fill: C.faint, fontSize: 12 }} axisLine={false} tickLine={false} minTickGap={24} />
+              <YAxis tick={{ fill: C.faint, fontSize: 12 }} axisLine={false} tickLine={false} />
+              <Tooltip content={<Tip unit=" steps" />} />
+              <Area type="monotone" dataKey="steps" name="Steps" stroke={C.cyan} strokeWidth={3} fill="url(#sg)" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </Panel>
+      )}
+
+      {weights.length === 0 && stepsArr.length === 0 && (
+        <Panel style={{ padding: 36, textAlign: "center", marginBottom: 24 }}>
+          <Activity size={28} color={C.faint} />
+          <div style={{ color: C.muted, font: `500 14px ${F_BODY}`, marginTop: 10 }}>
+            Log your weight and steps in the Session tab to see charts here.
+          </div>
+        </Panel>
+      )}
+    </>
   );
 }
 
