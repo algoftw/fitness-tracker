@@ -1,12 +1,13 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
 } from "recharts";
 import {
   Dumbbell, Plus, Trash2, ChevronLeft, ChevronRight, TrendingUp,
-  CalendarDays, Flame, Activity, Trophy,
+  CalendarDays, Flame, Activity, Trophy, Zap, Camera, Heart, RefreshCw,
 } from "lucide-react";
-import { db } from "./firebase";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { db, storage } from "./firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 
 /* ---------------- design tokens ---------------- */
@@ -22,6 +23,93 @@ const F_DISP = "'Barlow Condensed', system-ui, sans-serif";
 const F_BODY = "'Barlow', system-ui, sans-serif";
 const F_MONO = "'JetBrains Mono', ui-monospace, monospace";
 
+/* ---------------- motivation content ---------------- */
+const QUOTES = [
+  { text: "The version of you one year from now is watching every choice you make today. Don't let them down." },
+  { text: "Consistency doesn't care about motivation. Show up anyway." },
+  { text: "You didn't come this far to only come this far." },
+  { text: "Every time you choose your goals over a craving, you get a little stronger." },
+  { text: "Showing up is already 80% of winning. You showed up." },
+  { text: "Your future body is built in the moments your current self doesn't feel like trying." },
+  { text: "Discipline is the bridge between who you are and who you want to be." },
+  { text: "The food will still be there tomorrow. The progress you lose won't come back as fast." },
+  { text: "Strong is built one rep, one meal, one choice at a time." },
+  { text: "You're not tired — you're just used to stopping here. Push past the familiar." },
+  { text: "The only bad workout is the one that didn't happen." },
+  { text: "Progress isn't loud. It's the quiet accumulation of small daily choices." },
+  { text: "Nobody who ever gave their best regretted it.", author: "George Halas" },
+  { text: "If it doesn't challenge you, it doesn't change you." },
+  { text: "What you do today is who you become tomorrow." },
+  { text: "The hardest lift is getting yourself there. Everything after that is just reps." },
+  { text: "Motivation gets you started. Habits keep you going. Build the habit." },
+  { text: "You're building something. Every session is another brick in the wall." },
+  { text: "It always seems impossible until it's done.", author: "Nelson Mandela" },
+  { text: "The secret is there is no secret. Do the work, every day, without exception." },
+  { text: "Take care of your body. It's the only place you have to live.", author: "Jim Rohn" },
+  { text: "Be stronger than your excuses." },
+  { text: "You've earned every rep you've done. Don't trade that work for a moment of boredom." },
+  { text: "Success isn't owned. It's leased. And rent is due every day.", author: "J.J. Watt" },
+  { text: "The pain of discipline weighs ounces. The pain of regret weighs tons." },
+  { text: "When you feel like quitting, think about why you started." },
+  { text: "Each workout is a conversation between you and your potential." },
+  { text: "Your body hears everything your mind says. Tell it the right things." },
+  { text: "Every champion was once a beginner who refused to quit." },
+  { text: "Fall in love with the process and the results will follow." },
+];
+
+const ANTI_SNACK_TIPS = [
+  {
+    headline: "That's boredom, not hunger.",
+    body: "Your brain is looking for stimulation, not calories. Boredom and hunger feel identical in your body — but they're not.",
+    action: "Drink a full glass of water right now. Then stand up and walk for 2 minutes. If you still want food in 10 minutes, have a piece of fruit.",
+  },
+  {
+    headline: "The craving will peak and fade in 5 minutes.",
+    body: "Cravings are waves — they build, peak, and crash. You just have to outlast the peak. You've done harder things than this.",
+    action: "Set a 5-minute timer. Do something with your hands: write, doodle, stretch, or go refill your water bottle. Ride it out.",
+  },
+  {
+    headline: "Are you actually hungry?",
+    body: "If someone offered you a plain apple or some carrots right now, would you eat them enthusiastically? If no — you're not hungry. You're bored.",
+    action: "Ask yourself what you're actually feeling. Stressed? Restless? Distracted? Address that directly instead of reaching for food.",
+  },
+  {
+    headline: "You've already come too far for this.",
+    body: "Every time you resist a craving, you get measurably stronger at resisting the next one. This exact moment is building the skill.",
+    action: "Open your Progress tab. Look at what you've built. Remember why you started. Then drink water and get back to work.",
+  },
+  {
+    headline: "Idle hands, hungry mouth.",
+    body: "Boredom snacking is almost always about having nothing for your hands and mind to do — not actual hunger.",
+    action: "Text a friend, read one article, reorganize your desk, or take a 3-minute walk. Give your brain the stimulation it's actually craving.",
+  },
+  {
+    headline: "The gym version of you says no.",
+    body: "You put in real work in the gym. Every unnecessary snack is borrowing against that investment. Don't borrow from yourself.",
+    action: "Think about how you feel walking out of the gym after a great session. Protect that feeling. Drink water and wait it out.",
+  },
+  {
+    headline: "Change your location, break the craving.",
+    body: "Cravings are tied to context and location. Staying in the same spot with the same thoughts keeps the craving alive.",
+    action: "Get up and physically move. Go to a different room, take the long route to the bathroom, or step outside for 60 seconds.",
+  },
+  {
+    headline: "Boredom at work is a signal, not a hunger cue.",
+    body: "When you reach for snacks at your desk, your brain is asking for a change — not food. Don't confuse the two.",
+    action: "Do 10 desk pushups, stretch for 2 minutes, or write down 3 things you want to finish before end of day. Break the pattern.",
+  },
+  {
+    headline: "Future you is counting on present you.",
+    body: "The small decisions stack. Every single snack you skip is a vote for who you're becoming. Make it count.",
+    action: "Write down exactly what you're feeling right now and why you wanted to snack. Awareness breaks the automatic loop.",
+  },
+  {
+    headline: "Water first. Always water first.",
+    body: "Dehydration mimics hunger almost perfectly. You might just need fluids, not food.",
+    action: "Drink 16oz of water right now. All of it. Then wait 10 minutes. Cravings caused by dehydration will fade fast.",
+  },
+];
+
 /* ---------------- storage (Firestore) ---------------- */
 const store = {
   async get(k, fb) {
@@ -36,6 +124,12 @@ const store = {
     } catch (e) { console.error(e); }
   },
 };
+
+async function uploadPhoto(file, date) {
+  const r = ref(storage, `photos/${date}/${Date.now()}_${file.name}`);
+  await uploadBytes(r, file);
+  return getDownloadURL(r);
+}
 
 /* ---------------- date helpers ---------------- */
 const dstr = (d) => { const x = new Date(d);
@@ -162,6 +256,11 @@ export default function App() {
     const entry = bodyLog[date] || {};
     saveBody({ ...bodyLog, [date]: { ...entry, [k]: v } });
   };
+  const addPhoto = (url) => {
+    const entry = bodyLog[date] || {};
+    const photos = [...(entry.photos || []), url];
+    saveBody({ ...bodyLog, [date]: { ...entry, photos } });
+  };
   const session = log[date] || [];
 
   const lastBest = useMemo(() => {
@@ -242,12 +341,17 @@ export default function App() {
         {/* tabs */}
         <nav style={{ display: "flex", gap: 6, background: C.panel, padding: 6, borderRadius: 12,
           border: `1px solid ${C.line}`, marginBottom: 20 }} role="tablist">
-          {[["session","Session",<Dumbbell size={17}/>],["progress","Progress",<TrendingUp size={17}/>],
-            ["plan","Full Split",<CalendarDays size={17}/>]].map(([id,l,ic]) => (
+          {[
+            ["session","Session",<Dumbbell size={17}/>],
+            ["progress","Progress",<TrendingUp size={17}/>],
+            ["motivation","Motivation",<Zap size={17}/>],
+            ["plan","Full Split",<CalendarDays size={17}/>],
+          ].map(([id,l,ic]) => (
             <button key={id} onClick={() => setTab(id)} role="tab" aria-selected={tab===id}
               style={{ flex: 1, border: "none", cursor: "pointer", borderRadius: 9, padding: "11px 8px", minHeight: 44,
               display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
-              background: tab === id ? C.green : "transparent", color: tab === id ? "#04140a" : C.muted,
+              background: tab === id ? (id === "motivation" ? C.violet : C.green) : "transparent",
+              color: tab === id ? (id === "motivation" ? "#fff" : "#04140a") : C.muted,
               font: `700 13px ${F_BODY}`, letterSpacing: .3, transition: "background-color .2s, color .2s" }}>{ic}{l}</button>
           ))}
         </nav>
@@ -290,7 +394,7 @@ export default function App() {
             <Btn onClick={loadFullDay} bg={sp.color} style={{ marginTop: 16 }}><Plus size={16}/> Load full session</Btn>
           </Panel>
 
-          <DailyCheckin entry={bodyLog[date] || {}} onChange={setBodyField} />
+          <DailyCheckin entry={bodyLog[date] || {}} onChange={setBodyField} date={date} onAddPhoto={addPhoto} />
           <CustomAdd onAdd={addCustom} />
 
           {session.map((ex) => ex.cardio
@@ -311,7 +415,16 @@ export default function App() {
         {tab === "progress" && <>
           <AnalyticsView bodyLog={bodyLog} log={log} range={range} setRange={setRange} />
           <ProgressView log={log} />
+          <ProgressPhotosView bodyLog={bodyLog} />
         </>}
+
+        {tab === "motivation" && (
+          <MotivationTab entry={bodyLog[TODAY] || {}} onChange={(k, v) => {
+            const entry = bodyLog[TODAY] || {};
+            saveBody({ ...bodyLog, [TODAY]: { ...entry, [k]: v } });
+          }} />
+        )}
+
         {tab === "plan" && <PlanView />}
 
         <footer style={{ marginTop: 40, textAlign: "center", color: C.faint, font: `500 12px ${F_MONO}`, letterSpacing: .5 }}>
@@ -322,8 +435,161 @@ export default function App() {
   );
 }
 
+/* ---------------- motivation tab ---------------- */
+function MotivationTab({ entry, onChange }) {
+  const dailyQuote = QUOTES[new Date().getDate() % QUOTES.length];
+  const [activeQuote, setActiveQuote] = useState(null);
+  const [mode, setMode] = useState(null); // null | "boost" | "craving"
+  const [cravingIdx, setCravingIdx] = useState(0);
+
+  const getNewQuote = () => {
+    let q;
+    do { q = QUOTES[Math.floor(Math.random() * QUOTES.length)]; }
+    while (q.text === (activeQuote?.text || dailyQuote.text) && QUOTES.length > 1);
+    setActiveQuote(q);
+    setMode("boost");
+  };
+
+  const fightCraving = () => {
+    setCravingIdx(Math.floor(Math.random() * ANTI_SNACK_TIPS.length));
+    setMode("craving");
+  };
+
+  const nextCraving = () => setCravingIdx((cravingIdx + 1) % ANTI_SNACK_TIPS.length);
+
+  const craving = ANTI_SNACK_TIPS[cravingIdx];
+  const quote = mode === "boost" && activeQuote ? activeQuote : null;
+
+  const ENERGY = ["1", "2", "3", "4", "5"];
+  const ENERGY_COLORS = [C.coral, "#f97316", C.amber, C.lime, C.green];
+  const MOOD_EMOJI = ["😖", "😕", "😐", "😊", "😄"];
+
+  const ScaleBtn = ({ i, value, field, colors }) => {
+    const selected = entry[field] === i + 1;
+    return (
+      <button onClick={() => onChange(field, selected ? null : i + 1)}
+        style={{ flex: 1, border: `1px solid ${selected ? (colors?.[i] || C.violet) : C.line}`,
+          borderRadius: 9, padding: "10px 6px", cursor: "pointer", minHeight: 44,
+          background: selected ? `${colors?.[i] || C.violet}33` : C.panel,
+          color: selected ? (colors?.[i] || C.violet) : C.muted,
+          font: `700 16px ${F_DISP}`, transition: "all .15s", letterSpacing: .3 }}>
+        {colors ? ENERGY[i] : MOOD_EMOJI[i]}
+      </button>
+    );
+  };
+
+  return (
+    <>
+      {/* daily fuel */}
+      <Panel style={{ padding: 24, marginBottom: 16, borderColor: `${C.violet}55`,
+        background: `linear-gradient(135deg, ${C.violet}1a, ${C.panel} 65%)` }}>
+        <Eyebrow color={C.violet}>Today's Fuel</Eyebrow>
+        <div style={{ font: `700 24px/1.35 ${F_DISP}`, marginTop: 14, letterSpacing: .3, color: C.text }}>
+          "{dailyQuote.text}"
+        </div>
+        {dailyQuote.author && (
+          <div style={{ font: `500 13px ${F_BODY}`, color: C.faint, marginTop: 10 }}>— {dailyQuote.author}</div>
+        )}
+      </Panel>
+
+      {/* action buttons */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+        <Btn onClick={getNewQuote} bg={C.violet} fg="#fff" style={{ justifyContent: "center" }}>
+          <Zap size={16}/> More Fuel
+        </Btn>
+        <Btn onClick={fightCraving} bg={C.coral} fg="#fff" style={{ justifyContent: "center" }}>
+          <Heart size={16}/> Fighting a Craving?
+        </Btn>
+      </div>
+
+      {/* boost quote */}
+      {mode === "boost" && quote && (
+        <Panel style={{ padding: 22, marginBottom: 16, borderColor: `${C.violet}55`,
+          background: `linear-gradient(135deg, ${C.violet}22, ${C.panel} 60%)` }}>
+          <Eyebrow color={C.violet}>Your Boost</Eyebrow>
+          <div style={{ font: `700 22px/1.4 ${F_DISP}`, marginTop: 12, letterSpacing: .3, color: C.text }}>
+            "{quote.text}"
+          </div>
+          {quote.author && <div style={{ font: `500 13px ${F_BODY}`, color: C.faint, marginTop: 8 }}>— {quote.author}</div>}
+          <GhostBtn onClick={getNewQuote} style={{ marginTop: 16 }}>
+            <RefreshCw size={14}/> Another one
+          </GhostBtn>
+        </Panel>
+      )}
+
+      {/* craving rescue */}
+      {mode === "craving" && (
+        <Panel style={{ padding: 22, marginBottom: 16, borderColor: `${C.coral}55`,
+          background: `linear-gradient(135deg, ${C.coral}18, ${C.panel} 60%)` }}>
+          <Eyebrow color={C.coral}>Beat the Craving</Eyebrow>
+          <div style={{ font: `800 26px/1.1 ${F_DISP}`, marginTop: 12, color: C.coral, textTransform: "uppercase", letterSpacing: .4 }}>
+            {craving.headline}
+          </div>
+          <p style={{ font: `500 15px ${F_BODY}`, color: C.text, lineHeight: 1.6, margin: "12px 0 0" }}>
+            {craving.body}
+          </p>
+          <div style={{ background: `${C.coral}1e`, border: `1px solid ${C.coral}44`, borderRadius: 10,
+            padding: "14px 16px", marginTop: 16 }}>
+            <div style={{ font: `700 11px ${F_MONO}`, color: C.coral, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>
+              Do This Now
+            </div>
+            <div style={{ font: `500 14px ${F_BODY}`, color: C.text, lineHeight: 1.65 }}>
+              {craving.action}
+            </div>
+          </div>
+          <GhostBtn onClick={nextCraving} style={{ marginTop: 14 }}>
+            <RefreshCw size={14}/> Different tip
+          </GhostBtn>
+        </Panel>
+      )}
+
+      {/* mood & energy check-in */}
+      <Panel style={{ padding: 20, marginBottom: 16, borderColor: `${C.amber}55`,
+        background: `linear-gradient(135deg, ${C.amber}12, ${C.panel} 60%)` }}>
+        <Eyebrow color={C.amber}>Daily Check-In</Eyebrow>
+
+        <div style={{ marginTop: 16 }}>
+          <div style={{ font: `600 11px ${F_MONO}`, color: C.faint, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 10 }}>
+            Energy Level (1 = drained · 5 = locked in)
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {[0,1,2,3,4].map(i => <ScaleBtn key={i} i={i} field="energy" colors={ENERGY_COLORS} />)}
+          </div>
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <div style={{ font: `600 11px ${F_MONO}`, color: C.faint, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 10 }}>
+            Mood
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {[0,1,2,3,4].map(i => <ScaleBtn key={i} i={i} field="mood" />)}
+          </div>
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <div style={{ font: `600 11px ${F_MONO}`, color: C.faint, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
+            One Win Today (optional)
+          </div>
+          <input value={entry.win || ""} onChange={(e) => onChange("win", e.target.value)}
+            placeholder="Something you did well today…" style={{ ...cell, font: `500 15px ${F_BODY}` }}
+            onFocus={(e) => (e.target.style.borderColor = C.amber)}
+            onBlur={(e) => (e.target.style.borderColor = C.line)} />
+        </div>
+      </Panel>
+
+      {/* past wins */}
+      <PastWinsView />
+    </>
+  );
+}
+
+/* ---------------- past wins strip ---------------- */
+function PastWinsView() {
+  return null; // placeholder — wins are stored in bodyLog and can be expanded later
+}
+
 /* ---------------- daily check-in ---------------- */
-function DailyCheckin({ entry, onChange }) {
+function DailyCheckin({ entry, onChange, date, onAddPhoto }) {
   return (
     <Panel style={{ padding: 18, marginBottom: 16, borderColor: `${C.amber}55`,
       background: `linear-gradient(135deg, ${C.amber}18, ${C.panel} 60%)` }}>
@@ -344,6 +610,109 @@ function DailyCheckin({ entry, onChange }) {
             onBlur={(e) => (e.target.style.borderColor = C.line)} />
         </label>
       </div>
+      <PhotoCheckin photos={entry.photos || []} date={date} onAdd={onAddPhoto} />
+    </Panel>
+  );
+}
+
+/* ---------------- photo check-in ---------------- */
+function PhotoCheckin({ photos, date, onAdd }) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState(null);
+  const inputRef = useRef(null);
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const url = await uploadPhoto(file, date);
+      onAdd(url);
+    } catch (err) {
+      setError("Upload failed — check your connection and try again.");
+      console.error(err);
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ font: `600 11px ${F_MONO}`, color: C.faint, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 10 }}>
+        Progress Photo
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-start" }}>
+        {photos.map((url, i) => (
+          <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+            <img src={url} alt={`Progress ${i + 1}`} style={{
+              width: 88, height: 88, objectFit: "cover", borderRadius: 10,
+              border: `1px solid ${C.line}`, display: "block", transition: "border-color .2s",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.borderColor = C.violet)}
+            onMouseLeave={(e) => (e.currentTarget.style.borderColor = C.line)}
+            />
+          </a>
+        ))}
+        <label style={{
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+          width: 88, height: 88, border: `1px dashed ${uploading ? C.violet : C.line}`, borderRadius: 10,
+          cursor: uploading ? "default" : "pointer", background: C.panel2, color: uploading ? C.violet : C.muted,
+          gap: 5, font: `600 11px ${F_BODY}`, transition: "border-color .2s, color .2s",
+        }}
+        onMouseEnter={(e) => { if (!uploading) { e.currentTarget.style.borderColor = C.violet; e.currentTarget.style.color = C.text; } }}
+        onMouseLeave={(e) => { e.currentTarget.style.borderColor = uploading ? C.violet : C.line; e.currentTarget.style.color = uploading ? C.violet : C.muted; }}>
+          <input ref={inputRef} type="file" accept="image/*" onChange={handleFile} hidden disabled={uploading} />
+          <Camera size={18} />
+          <span>{uploading ? "Uploading…" : "Add Photo"}</span>
+        </label>
+      </div>
+      {error && (
+        <div style={{ color: C.coral, font: `500 13px ${F_BODY}`, marginTop: 8 }}>{error}</div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- progress photos gallery ---------------- */
+function ProgressPhotosView({ bodyLog }) {
+  const photoDates = Object.keys(bodyLog)
+    .filter(d => bodyLog[d]?.photos?.length)
+    .sort().reverse();
+
+  return (
+    <Panel style={{ padding: 18, marginTop: 16 }}>
+      <Eyebrow color={C.violet}>Progress Photos</Eyebrow>
+      {!photoDates.length ? (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "28px 0",
+          color: C.muted, font: `500 14px ${F_BODY}`, gap: 10 }}>
+          <Camera size={26} color={C.faint} />
+          Add progress photos from the Session tab's daily check-in.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 18, marginTop: 14 }}>
+          {photoDates.map(d => (
+            <div key={d}>
+              <div style={{ font: `700 13px ${F_MONO}`, color: C.faint, letterSpacing: 1.5,
+                textTransform: "uppercase", marginBottom: 8 }}>{pretty(d)}</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {bodyLog[d].photos.map((url, i) => (
+                  <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                    <img src={url} alt={`${d} progress`} style={{
+                      width: 110, height: 110, objectFit: "cover", borderRadius: 10,
+                      border: `1px solid ${C.line}`, display: "block", transition: "transform .2s, border-color .2s",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.04)"; e.currentTarget.style.borderColor = C.violet; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.borderColor = C.line; }}
+                    />
+                  </a>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </Panel>
   );
 }
