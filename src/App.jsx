@@ -6,8 +6,7 @@ import {
   Dumbbell, Plus, Trash2, ChevronLeft, ChevronRight, TrendingUp,
   CalendarDays, Flame, Activity, Trophy, Zap, Camera, Heart, RefreshCw,
 } from "lucide-react";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { db, storage } from "./firebase";
+import { db } from "./firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 
 /* ---------------- design tokens ---------------- */
@@ -125,13 +124,55 @@ const store = {
   },
 };
 
-async function uploadPhoto(file, date) {
-  const r = ref(storage, `photos/${date}/${Date.now()}_${file.name}`);
-  const timeout = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error("Upload timed out — check your Firebase Storage rules allow writes.")), 30000)
-  );
-  const upload = uploadBytes(r, file).then((snap) => getDownloadURL(snap.ref));
-  return Promise.race([upload, timeout]);
+/* ---------- photo storage: canvas compress + IndexedDB ---------- */
+let _photoDB = null;
+async function getPhotoDB() {
+  if (_photoDB) return _photoDB;
+  return new Promise((res, rej) => {
+    const r = indexedDB.open("fit-photos", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("p", { keyPath: "id", autoIncrement: true });
+    r.onsuccess = () => { _photoDB = r.result; res(_photoDB); };
+    r.onerror = () => rej(r.error);
+  });
+}
+async function compressPhoto(file) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX = 800;
+      let w = img.width, h = img.height;
+      if (w > MAX || h > MAX) { const k = Math.min(MAX/w, MAX/h); w = Math.round(w*k); h = Math.round(h*k); }
+      const c = document.createElement("canvas"); c.width = w; c.height = h;
+      c.getContext("2d").drawImage(img, 0, 0, w, h);
+      res(c.toDataURL("image/jpeg", 0.78));
+    };
+    img.onerror = rej; img.src = url;
+  });
+}
+async function dbSavePhoto(date, file) {
+  const db2 = await getPhotoDB();
+  const dataUrl = await compressPhoto(file);
+  await new Promise((res, rej) => {
+    const tx = db2.transaction("p", "readwrite");
+    tx.objectStore("p").add({ date, dataUrl, ts: Date.now() });
+    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+  });
+  return dataUrl;
+}
+async function dbLoadAllPhotos() {
+  const db2 = await getPhotoDB();
+  return new Promise((res, rej) => {
+    const tx = db2.transaction("p", "readonly");
+    const req = tx.objectStore("p").getAll();
+    req.onsuccess = () => {
+      const out = {};
+      req.result.forEach(r => { (out[r.date] = out[r.date] || []).push(r.dataUrl); });
+      res(out);
+    };
+    req.onerror = () => rej(req.error);
+  });
 }
 
 /* ---------------- date helpers ---------------- */
@@ -240,6 +281,7 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [log, setLog] = useState({});
   const [bodyLog, setBodyLog] = useState({});
+  const [photos, setPhotos] = useState({});
   const [range, setRange] = useState(14);
 
   useEffect(() => {
@@ -250,6 +292,7 @@ export default function App() {
   useEffect(() => { (async () => {
     setLog(await store.get("trainingLog", {}));
     setBodyLog(await store.get("bodyLog", {}));
+    setPhotos(await dbLoadAllPhotos());
     setLoaded(true);
   })(); }, []);
 
@@ -259,10 +302,9 @@ export default function App() {
     const entry = bodyLog[date] || {};
     saveBody({ ...bodyLog, [date]: { ...entry, [k]: v } });
   };
-  const addPhoto = (url) => {
-    const entry = bodyLog[date] || {};
-    const photos = [...(entry.photos || []), url];
-    saveBody({ ...bodyLog, [date]: { ...entry, photos } });
+  const addPhoto = async (file) => {
+    const dataUrl = await dbSavePhoto(date, file);
+    setPhotos(prev => ({ ...prev, [date]: [...(prev[date] || []), dataUrl] }));
   };
   const session = log[date] || [];
 
@@ -397,7 +439,7 @@ export default function App() {
             <Btn onClick={loadFullDay} bg={sp.color} style={{ marginTop: 16 }}><Plus size={16}/> Load full session</Btn>
           </Panel>
 
-          <DailyCheckin entry={bodyLog[date] || {}} onChange={setBodyField} date={date} onAddPhoto={addPhoto} />
+          <DailyCheckin entry={bodyLog[date] || {}} onChange={setBodyField} date={date} photos={photos[date] || []} onAddPhoto={addPhoto} />
           <CustomAdd onAdd={addCustom} />
 
           {session.map((ex) => ex.cardio
@@ -418,7 +460,7 @@ export default function App() {
         {tab === "progress" && <>
           <AnalyticsView bodyLog={bodyLog} log={log} range={range} setRange={setRange} />
           <ProgressView log={log} />
-          <ProgressPhotosView bodyLog={bodyLog} />
+          <ProgressPhotosView photos={photos} />
         </>}
 
         {tab === "motivation" && (
@@ -592,7 +634,7 @@ function PastWinsView() {
 }
 
 /* ---------------- daily check-in ---------------- */
-function DailyCheckin({ entry, onChange, date, onAddPhoto }) {
+function DailyCheckin({ entry, onChange, photos, onAddPhoto }) {
   return (
     <Panel style={{ padding: 18, marginBottom: 16, borderColor: `${C.amber}55`,
       background: `linear-gradient(135deg, ${C.amber}18, ${C.panel} 60%)` }}>
@@ -613,13 +655,13 @@ function DailyCheckin({ entry, onChange, date, onAddPhoto }) {
             onBlur={(e) => (e.target.style.borderColor = C.line)} />
         </label>
       </div>
-      <PhotoCheckin photos={entry.photos || []} date={date} onAdd={onAddPhoto} />
+      <PhotoCheckin photos={photos} onAdd={onAddPhoto} />
     </Panel>
   );
 }
 
 /* ---------------- photo check-in ---------------- */
-function PhotoCheckin({ photos, date, onAdd }) {
+function PhotoCheckin({ photos, onAdd }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState(null);
   const inputRef = useRef(null);
@@ -630,10 +672,9 @@ function PhotoCheckin({ photos, date, onAdd }) {
     setUploading(true);
     setError(null);
     try {
-      const url = await uploadPhoto(file, date);
-      onAdd(url);
+      await onAdd(file);
     } catch (err) {
-      setError(err.message || "Upload failed.");
+      setError("Failed to process photo. Try again.");
       console.error(err);
     } finally {
       setUploading(false);
@@ -679,10 +720,8 @@ function PhotoCheckin({ photos, date, onAdd }) {
 }
 
 /* ---------------- progress photos gallery ---------------- */
-function ProgressPhotosView({ bodyLog }) {
-  const photoDates = Object.keys(bodyLog)
-    .filter(d => bodyLog[d]?.photos?.length)
-    .sort().reverse();
+function ProgressPhotosView({ photos }) {
+  const photoDates = Object.keys(photos).filter(d => photos[d]?.length).sort().reverse();
 
   return (
     <Panel style={{ padding: 18, marginTop: 16 }}>
@@ -700,7 +739,7 @@ function ProgressPhotosView({ bodyLog }) {
               <div style={{ font: `700 13px ${F_MONO}`, color: C.faint, letterSpacing: 1.5,
                 textTransform: "uppercase", marginBottom: 8 }}>{pretty(d)}</div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {bodyLog[d].photos.map((url, i) => (
+                {photos[d].map((url, i) => (
                   <a key={i} href={url} target="_blank" rel="noopener noreferrer">
                     <img src={url} alt={`${d} progress`} style={{
                       width: 110, height: 110, objectFit: "cover", borderRadius: 10,
