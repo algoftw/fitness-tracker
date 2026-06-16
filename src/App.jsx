@@ -6,8 +6,6 @@ import {
   Dumbbell, Plus, Trash2, ChevronLeft, ChevronRight, TrendingUp,
   CalendarDays, Flame, Activity, Trophy, Zap, Camera, Heart, RefreshCw,
 } from "lucide-react";
-import { db } from "./firebase";
-import { doc, getDoc, setDoc } from "firebase/firestore";
 
 /* ---------------- design tokens ---------------- */
 const C = {
@@ -109,17 +107,17 @@ const ANTI_SNACK_TIPS = [
   },
 ];
 
-/* ---------------- storage (Firestore) ---------------- */
+/* ---------------- storage (localStorage) ---------------- */
 const store = {
   async get(k, fb) {
     try {
-      const snap = await getDoc(doc(db, "data", k));
-      return snap.exists() ? snap.data().value : fb;
+      const raw = localStorage.getItem(k);
+      return raw ? JSON.parse(raw) : fb;
     } catch { return fb; }
   },
   async set(k, v) {
     try {
-      await setDoc(doc(db, "data", k), { value: v });
+      localStorage.setItem(k, JSON.stringify(v));
     } catch (e) { console.error(e); }
   },
 };
