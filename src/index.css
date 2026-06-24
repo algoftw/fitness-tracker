@@ -52,6 +52,8 @@
 
 body {
   margin: 0;
+  background-color: #0A0606;
+  padding-top: env(safe-area-inset-top);
 }
 
 #root {
