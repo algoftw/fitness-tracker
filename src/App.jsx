@@ -11,7 +11,7 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 
 /* ---------------- design tokens ---------------- */
 const C = {
-  bg: "#0A0606", panel: "#1A1311", panel2: "#251A16",
+  bg: "#100a08", panel: "#22150f", panel2: "#2e1c14",
   line: "rgba(251,191,128,0.16)", lineSoft: "rgba(251,191,128,0.08)",
   green: "#FB923C", greenDim: "#C2410C", lime: "#FBBF24",
   cyan: "#FB7185", violet: "#F472B6", amber: "#FCD34D",
@@ -383,10 +383,7 @@ export default function App() {
         {/* header */}
         <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 14, marginBottom: 20 }}>
           <div>
-            <Eyebrow color={sp.color}>Training Log // Amped Fitness</Eyebrow>
-            <h1 style={{ font: `800 40px/.9 ${F_DISP}`, margin: "6px 0 0", letterSpacing: .5, textTransform: "uppercase" }}>
-              Beat&nbsp;Last&nbsp;Week
-            </h1>
+            <Eyebrow color={sp.color}>Training Log</Eyebrow>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 11, padding: "10px 16px",
             background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12 }}>
@@ -1081,7 +1078,7 @@ const NoData = ({ text = "Not enough data yet" }) => (
 function PlanView() {
   return (
     <Panel style={{ padding: 22 }}>
-      <Eyebrow color={C.green}>Weekly split // Amped Fitness</Eyebrow>
+      <Eyebrow color={C.green}>Weekly split</Eyebrow>
       <div style={{ marginTop: 14 }}>
         {SPLIT.map((s, i) => (
           <div key={i} style={{ display: "flex", gap: 14, padding: "16px 0", borderTop: i ? `1px solid ${C.lineSoft}` : "none" }}>
