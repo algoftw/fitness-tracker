@@ -484,6 +484,28 @@ export default function App() {
 
         <footer style={{ marginTop: 40, textAlign: "center", color: C.faint, font: `500 12px ${F_MONO}`, letterSpacing: .5 }}>
           Synced across all devices · progressive overload is the whole game
+          <div style={{ marginTop: 16 }}>
+            <button onClick={async () => {
+              if (!window.confirm("Reset ALL training data? This clears your log, body stats, and progress photos everywhere. This cannot be undone.")) return;
+              await store.set("trainingLog", {});
+              await store.set("bodyLog", {});
+              const db2 = await getPhotoDB();
+              await new Promise((res, rej) => {
+                const tx = db2.transaction("p", "readwrite");
+                tx.objectStore("p").clear();
+                tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+              });
+              setLog({});
+              setBodyLog({});
+              setPhotos({});
+            }} style={{ background: "none", border: `1px solid ${C.line}`, borderRadius: 8,
+              padding: "8px 16px", color: C.faint, font: `500 12px ${F_MONO}`, cursor: "pointer",
+              letterSpacing: .5, transition: "border-color .2s, color .2s" }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = C.coral; e.currentTarget.style.color = C.coral; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = C.line; e.currentTarget.style.color = C.faint; }}>
+              Reset all data
+            </button>
+          </div>
         </footer>
       </div>
     </div>
